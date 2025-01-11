@@ -9,11 +9,12 @@ Original file is located at
 
 # Importing necessary libraries
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import LabelEncoder
+from sklearn.utils import resample
 import numpy as np
 
 # Load the dataset (replace the path with the actual path to your CSV file)
@@ -31,40 +32,66 @@ df['Cholesterol Level'] = label_encoder.fit_transform(df['Cholesterol Level'])
 # Encoding 'Outcome' column (values like 'Positive', 'Negative')
 df['Outcome Variable'] = label_encoder.fit_transform(df['Outcome Variable'])
 
-# If other columns are also categorical (e.g., 'Disease Name', 'Gender'), you should encode them similarly
+# If other columns are also categorical (e.g., 'Disease Name', 'Gender'), encode them
 df['Disease'] = label_encoder.fit_transform(df['Disease'])
 df['Gender'] = label_encoder.fit_transform(df['Gender'])
 
+# Handle class imbalance by oversampling the minority class
+df_majority = df[df['Outcome Variable'] == 0]
+df_minority = df[df['Outcome Variable'] == 1]
+
+df_minority_upsampled = resample(
+    df_minority, 
+    replace=True,  # Sample with replacement
+    n_samples=len(df_majority),  # Match majority class size
+    random_state=42
+)
+
+# Combine the majority class with the upsampled minority class
+df_balanced = pd.concat([df_majority, df_minority_upsampled])
+
+# Shuffle the dataset
+df_balanced = df_balanced.sample(frac=1, random_state=42)
+
 # Features (X) and Target (Y)
-X = df.drop(columns=['Outcome Variable'])  # Drop the Outcome column to get the features
-y = df['Outcome Variable']  # Target variable: Outcome (Disease present or not)
+X = df_balanced.drop(columns=['Outcome Variable'])  # Drop the Outcome column to get the features
+y = df_balanced['Outcome Variable']  # Target variable: Outcome (Disease present or not)
 
 # Split the data into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-# Create a Decision Tree Classifier with Pruning (max_depth limits the depth of the tree)
-clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # max_depth = 3 is a pruning technique
+# GridSearch for Hyperparameter Tuning
+param_grid = {
+    'max_depth': [3, 5, 7, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 5],
+    'criterion': ['gini', 'entropy']
+}
 
-# Train the model
-clf.fit(X_train, y_train)
+# Initialize the GridSearchCV
+grid_search = GridSearchCV(DecisionTreeClassifier(random_state=42), param_grid, cv=5, scoring='accuracy', n_jobs=-1)
+
+# Fit the model to the training data
+grid_search.fit(X_train, y_train)
+
+# Get the best model
+best_clf = grid_search.best_estimator_
 
 # Predict on the test data
-y_pred = clf.predict(X_test)
+y_pred_best = best_clf.predict(X_test)
 
 # Evaluate the model
-accuracy = accuracy_score(y_test, y_pred)
-print(f"Accuracy: {accuracy * 100:.2f}%")
-print("\nClassification Report:\n", classification_report(y_test, y_pred))
+accuracy_best = accuracy_score(y_test, y_pred_best)
+print(f"Improved Accuracy: {accuracy_best * 100:.2f}%")
+print("\nClassification Report (Improved Model):\n", classification_report(y_test, y_pred_best))
 
-# Plot the decision tree
+# Plot the improved decision tree
 plt.figure(figsize=(12, 8))
-plot_tree(clf, feature_names=X.columns, class_names=['Negative', 'Positive'], filled=True)
-plt.title("Decision Tree for Disease Diagnosis")
+plot_tree(best_clf, feature_names=X.columns, class_names=['Negative', 'Positive'], filled=True)
+plt.title("Optimized Decision Tree for Disease Diagnosis")
 plt.show()
 
 # Plotting the real vs. predicted values
-
-# Sort indices to ensure both lines are aligned (for visualization)
 sorted_indices = np.argsort(np.arange(len(y_test)))
 
 plt.figure(figsize=(10, 6))
@@ -73,7 +100,7 @@ plt.figure(figsize=(10, 6))
 plt.plot(sorted_indices, y_test.iloc[sorted_indices], color='blue', label='Real Values', marker='o')
 
 # Plot predicted values (from the model)
-plt.plot(sorted_indices, y_pred[sorted_indices], color='red', label='Predicted Values', linestyle='--', marker='x')
+plt.plot(sorted_indices, y_pred_best[sorted_indices], color='red', label='Predicted Values', linestyle='--', marker='x')
 
 # Adding titles and labels
 plt.title("Comparison of Real vs. Predicted Values")
